@@ -1,0 +1,657 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Calendar, Plus, Search, Tag, Image, Lock, Menu, X, ChevronLeft, ChevronRight, Trash2, Edit2, Save, Upload, Video, Music, FileText, XCircle, ZoomIn } from 'lucide-react';
+
+const JournalApp = () => {
+  const [entries, setEntries] = useState([]);
+  const [currentEntry, setCurrentEntry] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [editTags, setEditTags] = useState('');
+  const [editMedia, setEditMedia] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [view, setView] = useState('timeline');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    loadEntries();
+  }, []);
+
+  const loadEntries = async () => {
+    try {
+      const result = await window.storage.list('entry:');
+      if (result && result.keys) {
+        const loadedEntries = await Promise.all(
+          result.keys.map(async (key) => {
+            try {
+              const data = await window.storage.get(key);
+              return data ? JSON.parse(data.value) : null;
+            } catch (e) {
+              return null;
+            }
+          })
+        );
+        const validEntries = loadedEntries.filter(e => e !== null);
+        setEntries(validEntries.sort((a, b) => new Date(b.date) - new Date(a.date)));
+      }
+    } catch (error) {
+      console.log('No existing entries found');
+    }
+  };
+
+  const saveEntry = async (entry) => {
+    try {
+      await window.storage.set(`entry:${entry.id}`, JSON.stringify(entry));
+      return true;
+    } catch (error) {
+      console.error('Failed to save entry:', error);
+      return false;
+    }
+  };
+
+  const deleteEntryFromStorage = async (entryId) => {
+    try {
+      await window.storage.delete(`entry:${entryId}`);
+      return true;
+    } catch (error) {
+      console.error('Failed to delete entry:', error);
+      return false;
+    }
+  };
+
+  const createNewEntry = () => {
+    const newEntry = {
+      id: Date.now().toString(),
+      title: '',
+      content: '',
+      date: new Date().toISOString(),
+      tags: [],
+      media: [],
+      mood: null
+    };
+    setCurrentEntry(newEntry);
+    setIsEditing(true);
+    setEditTitle('');
+    setEditContent('');
+    setEditTags('');
+    setEditMedia([]);
+  };
+
+  const handleFileUpload = (e) => {
+    const files = Array.from(e.target.files);
+    
+    files.forEach(file => {
+      const reader = new FileReader();
+      
+      reader.onload = (event) => {
+        const mediaItem = {
+          id: Date.now() + Math.random(),
+          type: file.type.startsWith('image/') ? 'image' : 
+                file.type.startsWith('video/') ? 'video' :
+                file.type.startsWith('audio/') ? 'audio' : 'file',
+          data: event.target.result,
+          name: file.name,
+          size: file.size
+        };
+        
+        setEditMedia(prev => [...prev, mediaItem]);
+      };
+      
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeMedia = (mediaId) => {
+    setEditMedia(prev => prev.filter(m => m.id !== mediaId));
+  };
+
+  const handleSaveEntry = async () => {
+    if (!editContent.trim() && editMedia.length === 0) return;
+
+    const entryToSave = {
+      ...currentEntry,
+      title: editTitle || new Date(currentEntry.date).toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      }),
+      content: editContent,
+      tags: editTags.split(',').map(t => t.trim()).filter(t => t),
+      media: editMedia,
+      lastModified: new Date().toISOString()
+    };
+
+    const saved = await saveEntry(entryToSave);
+    if (saved) {
+      const existingIndex = entries.findIndex(e => e.id === entryToSave.id);
+      let newEntries;
+      if (existingIndex >= 0) {
+        newEntries = [...entries];
+        newEntries[existingIndex] = entryToSave;
+      } else {
+        newEntries = [entryToSave, ...entries];
+      }
+      setEntries(newEntries);
+      setCurrentEntry(entryToSave);
+      setIsEditing(false);
+    }
+  };
+
+  const handleEditEntry = () => {
+    setEditTitle(currentEntry.title);
+    setEditContent(currentEntry.content);
+    setEditTags(currentEntry.tags.join(', '));
+    setEditMedia(currentEntry.media || []);
+    setIsEditing(true);
+  };
+
+  const handleDeleteEntry = async () => {
+    if (window.confirm('Are you sure you want to delete this entry?')) {
+      const deleted = await deleteEntryFromStorage(currentEntry.id);
+      if (deleted) {
+        setEntries(entries.filter(e => e.id !== currentEntry.id));
+        setCurrentEntry(null);
+        setIsEditing(false);
+      }
+    }
+  };
+
+  const filteredEntries = entries.filter(entry => {
+    const matchesSearch = searchQuery === '' || 
+      entry.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      entry.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      entry.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchesSearch;
+  });
+
+  const getDatesWithEntries = () => {
+    const dates = new Set();
+    entries.forEach(entry => {
+      const date = new Date(entry.date);
+      dates.add(date.toDateString());
+    });
+    return dates;
+  };
+
+  const getEntriesForDate = (date) => {
+    return entries.filter(entry => {
+      const entryDate = new Date(entry.date);
+      return entryDate.toDateString() === date.toDateString();
+    });
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const renderMediaItem = (media, showRemove = false) => {
+    if (media.type === 'image') {
+      return (
+        <div key={media.id} className="relative group">
+          <img 
+            src={media.data} 
+            alt={media.name}
+            className="w-full h-48 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+            onClick={() => setSelectedImage(media.data)}
+          />
+          {showRemove && (
+            <button
+              onClick={() => removeMedia(media.id)}
+              className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <XCircle size={20} />
+            </button>
+          )}
+          <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+            {formatFileSize(media.size)}
+          </div>
+        </div>
+      );
+    }
+
+    if (media.type === 'video') {
+      return (
+        <div key={media.id} className="relative group">
+          <video 
+            src={media.data} 
+            controls
+            className="w-full h-48 object-cover rounded-lg"
+          />
+          {showRemove && (
+            <button
+              onClick={() => removeMedia(media.id)}
+              className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <XCircle size={20} />
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    if (media.type === 'audio') {
+      return (
+        <div key={media.id} className="relative bg-gray-800 p-4 rounded-lg group">
+          <div className="flex items-center gap-3 mb-2">
+            <Music size={24} className="text-blue-400" />
+            <div className="flex-1">
+              <div className="text-sm font-medium">{media.name}</div>
+              <div className="text-xs text-gray-400">{formatFileSize(media.size)}</div>
+            </div>
+            {showRemove && (
+              <button
+                onClick={() => removeMedia(media.id)}
+                className="text-red-400 hover:text-red-300"
+              >
+                <XCircle size={20} />
+              </button>
+            )}
+          </div>
+          <audio src={media.data} controls className="w-full" />
+        </div>
+      );
+    }
+
+    return (
+      <div key={media.id} className="relative bg-gray-800 p-4 rounded-lg flex items-center gap-3 group">
+        <FileText size={24} className="text-gray-400" />
+        <div className="flex-1">
+          <div className="text-sm font-medium">{media.name}</div>
+          <div className="text-xs text-gray-400">{formatFileSize(media.size)}</div>
+        </div>
+        {showRemove && (
+          <button
+            onClick={() => removeMedia(media.id)}
+            className="text-red-400 hover:text-red-300"
+          >
+            <XCircle size={20} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderCalendar = () => {
+    const year = selectedDate.getFullYear();
+    const month = selectedDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+    
+    const days = [];
+    const datesWithEntries = getDatesWithEntries();
+
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(<div key={`empty-${i}`} className="h-20 border border-gray-700"></div>);
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(year, month, day);
+      const hasEntry = datesWithEntries.has(date.toDateString());
+      const isToday = date.toDateString() === new Date().toDateString();
+      
+      days.push(
+        <div 
+          key={day}
+          onClick={() => {
+            const dayEntries = getEntriesForDate(date);
+            if (dayEntries.length > 0) {
+              setCurrentEntry(dayEntries[0]);
+              setIsEditing(false);
+            }
+          }}
+          className={`h-20 border border-gray-700 p-2 cursor-pointer hover:bg-gray-800 transition-colors ${
+            hasEntry ? 'bg-blue-900/20' : ''
+          } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
+        >
+          <div className={`text-sm ${isToday ? 'font-bold text-blue-400' : 'text-gray-400'}`}>
+            {day}
+          </div>
+          {hasEntry && (
+            <div className="mt-1">
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return days;
+  };
+
+  const changeMonth = (offset) => {
+    setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + offset, 1));
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-900 text-gray-100">
+      {/* Image Lightbox */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedImage(null)}
+        >
+          <button
+            onClick={() => setSelectedImage(null)}
+            className="absolute top-4 right-4 text-white hover:text-gray-300"
+          >
+            <X size={32} />
+          </button>
+          <img 
+            src={selectedImage} 
+            alt="Full size"
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {/* Sidebar */}
+      <div className={`${sidebarOpen ? 'w-80' : 'w-0'} transition-all duration-300 overflow-hidden border-r border-gray-800 flex flex-col`}>
+        <div className="p-4 border-b border-gray-800">
+          <h1 className="text-2xl font-bold text-blue-400 mb-4">My Journal</h1>
+          <button
+            onClick={createNewEntry}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors"
+          >
+            <Plus size={20} />
+            New Entry
+          </button>
+        </div>
+
+        <div className="p-4 border-b border-gray-800">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 text-gray-500" size={20} />
+            <input
+              type="text"
+              placeholder="Search entries..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        <div className="p-4 border-b border-gray-800">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setView('timeline')}
+              className={`flex-1 py-2 px-3 rounded-lg transition-colors ${
+                view === 'timeline' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              Timeline
+            </button>
+            <button
+              onClick={() => setView('calendar')}
+              className={`flex-1 py-2 px-3 rounded-lg transition-colors ${
+                view === 'calendar' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              <Calendar size={16} className="inline mr-1" />
+              Calendar
+            </button>
+          </div>
+        </div>
+
+        {view === 'timeline' && (
+          <div className="flex-1 overflow-y-auto">
+            {filteredEntries.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                <Calendar size={48} className="mx-auto mb-4 opacity-50" />
+                <p>No entries yet</p>
+                <p className="text-sm mt-2">Start journaling to see your timeline</p>
+              </div>
+            ) : (
+              <div className="p-4 space-y-2">
+                {filteredEntries.map(entry => (
+                  <div
+                    key={entry.id}
+                    onClick={() => {
+                      setCurrentEntry(entry);
+                      setIsEditing(false);
+                    }}
+                    className={`p-4 rounded-lg cursor-pointer transition-colors ${
+                      currentEntry?.id === entry.id ? 'bg-blue-900/30 border border-blue-600' : 'bg-gray-800 hover:bg-gray-700'
+                    }`}
+                  >
+                    <div className="text-sm text-gray-400 mb-1">
+                      {new Date(entry.date).toLocaleDateString('en-US', { 
+                        weekday: 'short',
+                        month: 'short', 
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </div>
+                    <div className="font-medium mb-1">{entry.title}</div>
+                    <div className="text-sm text-gray-400 line-clamp-2">{entry.content}</div>
+                    
+                    {entry.media && entry.media.length > 0 && (
+                      <div className="flex gap-1 mt-2">
+                        {entry.media.slice(0, 3).map(media => (
+                          media.type === 'image' ? (
+                            <img 
+                              key={media.id}
+                              src={media.data} 
+                              alt=""
+                              className="w-12 h-12 object-cover rounded"
+                            />
+                          ) : (
+                            <div key={media.id} className="w-12 h-12 bg-gray-700 rounded flex items-center justify-center">
+                              {media.type === 'video' ? <Video size={16} /> : <Music size={16} />}
+                            </div>
+                          )
+                        ))}
+                        {entry.media.length > 3 && (
+                          <div className="w-12 h-12 bg-gray-700 rounded flex items-center justify-center text-xs">
+                            +{entry.media.length - 3}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {entry.tags.length > 0 && (
+                      <div className="flex gap-2 mt-2 flex-wrap">
+                        {entry.tags.map((tag, idx) => (
+                          <span key={idx} className="text-xs bg-gray-700 px-2 py-1 rounded">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
+        <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+          >
+            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          
+          {view === 'calendar' && (
+            <div className="flex items-center gap-4">
+              <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-800 rounded-lg">
+                <ChevronLeft size={20} />
+              </button>
+              <span className="font-semibold">
+                {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </span>
+              <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-800 rounded-lg">
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          )}
+
+          {currentEntry && !isEditing && (
+            <div className="flex gap-2">
+              <button
+                onClick={handleEditEntry}
+                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <Edit2 size={20} />
+              </button>
+              <button
+                onClick={handleDeleteEntry}
+                className="p-2 hover:bg-red-900/50 text-red-400 rounded-lg transition-colors"
+              >
+                <Trash2 size={20} />
+              </button>
+            </div>
+          )}
+
+          {isEditing && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <Upload size={20} />
+                Add Media
+              </button>
+              <button
+                onClick={handleSaveEntry}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <Save size={20} />
+                Save Entry
+              </button>
+            </div>
+          )}
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,video/*,audio/*"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+
+        <div className="flex-1 overflow-y-auto">
+          {view === 'calendar' ? (
+            <div className="p-8">
+              <div className="grid grid-cols-7 gap-0 max-w-5xl mx-auto">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                  <div key={day} className="h-12 flex items-center justify-center font-semibold text-gray-400 border border-gray-800">
+                    {day}
+                  </div>
+                ))}
+                {renderCalendar()}
+              </div>
+            </div>
+          ) : (
+            <>
+              {!currentEntry && !isEditing ? (
+                <div className="flex items-center justify-center h-full text-gray-500">
+                  <div className="text-center">
+                    <Calendar size={64} className="mx-auto mb-4 opacity-50" />
+                    <p className="text-xl mb-2">Select an entry or create a new one</p>
+                    <button
+                      onClick={createNewEntry}
+                      className="mt-4 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    >
+                      Start Writing
+                    </button>
+                  </div>
+                </div>
+              ) : isEditing ? (
+                <div className="p-8 max-w-4xl mx-auto">
+                  <input
+                    type="text"
+                    placeholder="Entry Title (optional)"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full text-3xl font-bold bg-transparent border-none outline-none mb-2 placeholder-gray-600"
+                  />
+                  <div className="text-sm text-gray-400 mb-6">
+                    {new Date(currentEntry.date).toLocaleDateString('en-US', { 
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </div>
+
+                  {editMedia.length > 0 && (
+                    <div className="mb-6 grid grid-cols-2 gap-4">
+                      {editMedia.map(media => renderMediaItem(media, true))}
+                    </div>
+                  )}
+
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    placeholder="What's on your mind?"
+                    className="w-full h-96 bg-transparent border border-gray-700 rounded-lg p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                  <div className="mt-4">
+                    <label className="block text-sm text-gray-400 mb-2">Tags (comma-separated)</label>
+                    <input
+                      type="text"
+                      placeholder="work, personal, ideas..."
+                      value={editTags}
+                      onChange={(e) => setEditTags(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 max-w-4xl mx-auto">
+                  <h2 className="text-3xl font-bold mb-2">{currentEntry.title}</h2>
+                  <div className="text-sm text-gray-400 mb-6">
+                    {new Date(currentEntry.date).toLocaleDateString('en-US', { 
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </div>
+
+                  {currentEntry.media && currentEntry.media.length > 0 && (
+                    <div className="mb-6 grid grid-cols-2 gap-4">
+                      {currentEntry.media.map(media => renderMediaItem(media, false))}
+                    </div>
+                  )}
+
+                  <div className="prose prose-invert max-w-none mb-6 whitespace-pre-wrap">
+                    {currentEntry.content}
+                  </div>
+                  {currentEntry.tags.length > 0 && (
+                    <div className="flex gap-2 flex-wrap">
+                      {currentEntry.tags.map((tag, idx) => (
+                        <span key={idx} className="bg-blue-900/30 text-blue-300 px-3 py-1 rounded-full text-sm">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default JournalApp;
