@@ -17,7 +17,7 @@ import reportWebVitals from './reportWebVitals';
 // or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
 
 
-const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_ID = process.env.REACT_APP_CLIENT_ID;
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
  root.render(
