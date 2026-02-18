@@ -1,4 +1,4 @@
-**#App link: https://dayzer00.netlify.app/
+App link: https://dayzer00.netlify.app/
 
 # Getting Started with Create React App
 
