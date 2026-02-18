@@ -3,6 +3,7 @@ import { Calendar, Plus, Search, Tag, Image, Lock, Menu, X, ChevronLeft, Chevron
 import { useGoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import './storage';
+import { uploadToCloudinary } from './cloudinary';
 
 const JournalApp = () => {
   const [user, setUser] = useState(null);
@@ -274,84 +275,113 @@ if (navigator.geolocation) {
     });
   };
 
-  // const handleFileUpload = (e) => {
+
+  // const handleFileUpload = async (e, insertAtIndex = null) => {
+  //   setUploading(true);
   //   const files = Array.from(e.target.files);
     
-  //   files.forEach(file => {
-  //     const reader = new FileReader();
+  //   for (let idx = 0; idx < files.length; idx++) {
+  //     const file = files[idx];
       
-  //     reader.onload = (event) => {
+  //     // Check file size (limit 10MB for videos, 5MB for others)
+  //     const maxSize = file.type.startsWith('video/') ? 200 * 1024 * 1024 : 5 * 1024 * 1024;
+  //     if (file.size > maxSize) {
+  //       alert(`File "${file.name}" is too large. Max size: ${maxSize / (1024 * 1024)}MB`);
+  //       continue;
+  //     }
+      
+  //     try {
+  //       let mediaData;
+        
+  //       // Compress images
+  //       if (file.type.startsWith('image/')) {
+  //         mediaData = await compressImage(file);
+  //       } else {
+  //         // For videos and audio, use as-is
+  //         mediaData = await new Promise((resolve) => {
+  //           const reader = new FileReader();
+  //           reader.onload = (event) => resolve(event.target.result);
+  //           reader.readAsDataURL(file);
+  //         });
+  //       }
+        
   //       const mediaItem = {
   //         id: Date.now() + Math.random(),
   //         type: file.type.startsWith('image/') ? 'image' : 
   //               file.type.startsWith('video/') ? 'video' :
   //               file.type.startsWith('audio/') ? 'audio' : 'file',
-  //         data: event.target.result,
+  //         data: mediaData,
   //         name: file.name,
   //         size: file.size
   //       };
         
-  //       setEditMedia(prev => [...prev, mediaItem]);
-  //     };
-      
-  //     reader.readAsDataURL(file);
-  //   });
+  //       if (insertAtIndex !== null) {
+  //         // For future block-based editor
+  //         setEditMedia(prev => [...prev, mediaItem]);
+  //       } else {
+  //         setEditMedia(prev => [...prev, mediaItem]);
+  //       }
+  //     } catch (error) {
+  //       console.error('Error processing file:', error);
+  //       alert(`Failed to process "${file.name}"`);
+  //     }
+  //   }
+    
+  //   // Clear the input
+  //   setUploading(false);
+  //   e.target.value = '';
   // };
 
   const handleFileUpload = async (e, insertAtIndex = null) => {
+    if (!e || !e.target || !e.target.files) {
+      console.error('Invalid file input');
+      return;
+    }
+    
     setUploading(true);
     const files = Array.from(e.target.files);
+    
+    console.log('Uploading', files.length, 'files');
     
     for (let idx = 0; idx < files.length; idx++) {
       const file = files[idx];
       
-      // Check file size (limit 10MB for videos, 5MB for others)
-      const maxSize = file.type.startsWith('video/') ? 200 * 1024 * 1024 : 5 * 1024 * 1024;
+      // Check file size
+      const maxSize = 50 * 1024 * 1024; // 50MB
       if (file.size > maxSize) {
-        alert(`File "${file.name}" is too large. Max size: ${maxSize / (1024 * 1024)}MB`);
+        alert(`"${file.name}" is too large. Max: 50MB`);
         continue;
       }
       
       try {
-        let mediaData;
+        console.log('Uploading:', file.name);
         
-        // Compress images
-        if (file.type.startsWith('image/')) {
-          mediaData = await compressImage(file);
-        } else {
-          // For videos and audio, use as-is
-          mediaData = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (event) => resolve(event.target.result);
-            reader.readAsDataURL(file);
-          });
-        }
+        // Upload to Cloudinary
+        const mediaUrl = await uploadToCloudinary(file);
+        
+        console.log('Success! URL:', mediaUrl);
         
         const mediaItem = {
           id: Date.now() + Math.random(),
           type: file.type.startsWith('image/') ? 'image' : 
                 file.type.startsWith('video/') ? 'video' :
                 file.type.startsWith('audio/') ? 'audio' : 'file',
-          data: mediaData,
+          data: mediaUrl, // This is now a URL, not base64
           name: file.name,
           size: file.size
         };
         
-        if (insertAtIndex !== null) {
-          // For future block-based editor
-          setEditMedia(prev => [...prev, mediaItem]);
-        } else {
-          setEditMedia(prev => [...prev, mediaItem]);
-        }
+        setEditMedia(prev => [...prev, mediaItem]);
       } catch (error) {
-        console.error('Error processing file:', error);
-        alert(`Failed to process "${file.name}"`);
+        console.error('Upload failed:', error);
+        alert(`Failed to upload "${file.name}"`);
       }
     }
     
-    // Clear the input
     setUploading(false);
-    e.target.value = '';
+    if (e.target) {
+      e.target.value = '';
+    }
   };
 
   
